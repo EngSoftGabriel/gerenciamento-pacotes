@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#438b35">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <link rel="icon" href="/icons/app-192.png" type="image/png">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+    <title>Acesso administrativo | Vitória Régia</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/install.js" defer></script>
+    <script src="/login.js" defer></script>
+  </head>
+  <body class="login-body">
+    <main class="login-layout">
+      <aside class="login-showcase">
+        <a class="login-brand" href="/login" aria-label="Vitória Régia">
+          <img src="/brand-mark.svg" alt="">
+          <span><strong>Vitória</strong><em>Régia</em></span>
+        </a>
+        <div class="showcase-copy">
+          <span class="login-eyebrow">CONDOMÍNIO RESIDENCIAL</span>
+          <h1>Bem-vindo<br>de volta.</h1>
+          <p>Acesse o painel administrativo do condomínio.</p>
+        </div>
+        <span class="showcase-footer">GESTÃO CONDOMINIAL · 2026</span>
+      </aside>
+      <section class="login-content" aria-labelledby="loginTitle">
+        <button class="install-app-button login-install-button" type="button" data-install-app><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 17v3h14v-3"/></svg><span>Instalar app</span></button>
+        <div class="login-card">
+          <a class="login-mobile-brand" href="/login" aria-label="Vitória Régia">
+            <img src="/brand-mark.svg" alt="">
+            <span><strong>Vitória</strong><em>Régia</em></span>
+          </a>
+          <span class="login-eyebrow">ACESSO ADMINISTRATIVO</span>
+          <h2 id="loginTitle">Entrar na sua conta</h2>
+          <p class="login-intro">Informe seus dados para continuar.</p>
+          <form id="loginForm" novalidate>
+            <label class="login-field" for="username">Usuário
+              <span class="login-input-wrap"><span class="input-icon" aria-hidden="true">♙</span><input id="username" name="username" autocomplete="username" placeholder="Seu usuário" required></span>
+            </label>
+            <label class="login-field" for="password">Senha
+              <span class="login-input-wrap"><span class="input-icon lock-icon" aria-hidden="true">⌑</span><input id="password" name="password" type="password" autocomplete="current-password" placeholder="Sua senha" required><button class="password-toggle" type="button" id="togglePassword" aria-label="Mostrar senha" title="Mostrar senha"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.2-6 9.5-6 9.5 6 9.5 6-3.2 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.7"/></svg></button></span>
+            </label>
+            <p class="login-error" id="loginError" role="alert" hidden></p>
+            <button class="login-submit" id="loginSubmit" type="submit"><span>Entrar no painel</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+          </form>
+          <div class="login-divider"><span></span><i></i><span></span></div>
+          <p class="login-footnote"><span class="secure-dot"></span>Acesso protegido do Condomínio Vitória Régia</p>
+        </div>
+      </section>
+    </main>
+    <dialog class="install-help-dialog" id="installHelpDialog" aria-labelledby="installHelpTitle">
+      <form method="dialog"><button class="dialog-close" aria-label="Fechar">×</button></form>
+      <span class="login-eyebrow">VITÓRIA RÉGIA · APP</span>
+      <h2 id="installHelpTitle">Instalar aplicativo</h2>
+      <p id="installHelpIntro"></p>
+      <ol id="installHelpSteps"></ol>
+      <button class="login-submit install-help-close" type="button" data-close-install-help>Entendi</button>
+    </dialog>
+  </body>
+</html>
