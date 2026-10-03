@@ -1,6 +1,6 @@
 const residents = [];
 
-const state = { orders: [], view: "dashboard", filter: "all", search: "", building: "all" };
+const state = { orders: [], ordersError: "", view: "dashboard", filter: "all", search: "", building: "all" };
 const content = document.querySelector("#viewContent");
 const dateFormatter = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
 const timeFormatter = new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" });
@@ -158,7 +158,8 @@ function renderSettings() {
 function render() {
   updateChrome();
   const pages = { dashboard: renderDashboard, orders: renderOrders, reports: renderReports, residents: renderResidents, settings: renderSettings };
-  content.innerHTML = pages[state.view]();
+  const errorBanner = state.ordersError ? `<div class="login-error" role="alert">${escapeHtml(state.ordersError)} <button class="text-button" data-action="reload-orders">Tentar novamente</button></div>` : "";
+  content.innerHTML = `${errorBanner}${pages[state.view]()}`;
 }
 
 let toastTimer;
@@ -182,27 +183,31 @@ function exportOrders() {
 }
 
 async function persistOrder(order) {
-  try {
-    const response = await fetch("/api/orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(order) });
-    if (response.status === 401) { window.location.replace("/login"); return null; }
-    if (!response.ok) throw new Error("API indisponível");
-    return await response.json();
-  } catch {
-    const nextId = Math.max(0, ...state.orders.map((item) => Number(item.id) || 0)) + 1;
-    return { ...order, id: nextId, status: "pending", receivedAt: new Date().toISOString() };
+  const response = await fetch("/api/orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(order) });
+  if (response.status === 401) { window.location.replace("/login"); return null; }
+  if (!response.ok) {
+    const result = await response.json().catch(() => ({}));
+    throw new Error(result.error || "Não foi possível salvar. Verifique a conexão com o servidor e o banco de dados.");
   }
+  return response.json();
 }
 
 async function updateOrderStatus(id) {
   const order = state.orders.find((item) => String(item.id) === String(id));
   if (!order || order.status !== "pending") return;
-  let updated = { ...order, status: "picked_up", pickedUpAt: new Date().toISOString() };
   try {
     const response = await fetch(`/api/orders/${encodeURIComponent(id)}/pickup`, { method: "PATCH" });
     if (response.status === 401) { window.location.replace("/login"); return; }
-    if (response.ok) updated = await response.json();
-  } catch { /* mantém a atualização de demonstração */ }
-  state.orders = state.orders.map((item) => String(item.id) === String(id) ? updated : item);
+    if (!response.ok) {
+      const result = await response.json().catch(() => ({}));
+      throw new Error(result.error || "Não foi possível confirmar a retirada.");
+    }
+    const updated = await response.json();
+    state.orders = state.orders.map((item) => String(item.id) === String(id) ? updated : item);
+  } catch (error) {
+    showToast(error.message || "Falha de conexão. A retirada não foi confirmada.");
+    return;
+  }
   render();
   showToast(`Retirada da encomenda #${id} confirmada.`);
 }
@@ -226,6 +231,7 @@ content.addEventListener("click", (event) => {
   const action = event.target.closest("[data-action]");
   if (!action) return;
   if (action.dataset.action === "new-order") openOrderDialog();
+  if (action.dataset.action === "reload-orders") loadOrders();
   if (action.dataset.action === "export") exportOrders();
   if (action.dataset.action === "pickup") updateOrderStatus(action.dataset.id);
   if (action.dataset.action === "view-order") {
@@ -268,7 +274,13 @@ document.querySelector("#orderForm").addEventListener("submit", async (event) =>
   const form = event.currentTarget;
   const fields = new FormData(form);
   const order = { resident: fields.get("resident").trim(), building: fields.get("building"), apartment: fields.get("apartment").trim(), carrier: fields.get("carrier").trim() || "Não informado", porter: fields.get("porter").trim(), notes: fields.get("notes").trim() };
-  const saved = await persistOrder(order);
+  let saved;
+  try {
+    saved = await persistOrder(order);
+  } catch (error) {
+    showToast(error.message || "Não foi possível salvar a encomenda.");
+    return;
+  }
   if (!saved) return;
   state.orders.unshift(saved);
   state.view = "orders";
@@ -288,13 +300,19 @@ document.querySelector("#logoutButton").addEventListener("click", async () => {
 });
 
 async function loadOrders() {
+  state.ordersError = "";
+  render();
   try {
-    const response = await fetch("/api/orders", { signal: AbortSignal.timeout(1800) });
+    const response = await fetch("/api/orders");
     if (response.status === 401) { window.location.replace("/login"); return; }
-    if (!response.ok) throw new Error("API indisponível");
+    if (!response.ok) {
+      const result = await response.json().catch(() => ({}));
+      throw new Error(result.error || "Não foi possível carregar as encomendas.");
+    }
     state.orders = await response.json();
-  } catch {
+  } catch (error) {
     state.orders = [];
+    state.ordersError = `${error.message || "Falha de conexão."} Os dados podem não estar sincronizados entre dispositivos.`;
   }
   render();
 }

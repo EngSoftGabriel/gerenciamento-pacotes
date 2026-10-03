@@ -8,7 +8,7 @@ Painel web para a portaria registrar encomendas, acompanhar retiradas e consulta
 2. Execute `npm install` e depois `npm start`.
 3. Acesse http://localhost:3000.
 
-O acesso inicial é `admin` / `admin`. Sem PostgreSQL configurado, a interface começa vazia; novos registros funcionam na sessão atual do navegador, sem persistência. Para gravar os dados no banco, configure a conexão abaixo.
+O acesso inicial é `admin` / `admin`. Sem PostgreSQL configurado, a interface começa vazia e não salva novos registros. Para consultar as mesmas encomendas em mais de um dispositivo, publique/acione os dispositivos na mesma instalação do servidor e configure `DATABASE_URL` para um PostgreSQL persistente compartilhado, conforme as instruções abaixo.
 
 As credenciais podem ser alteradas com `ADMIN_USERNAME` e `ADMIN_PASSWORD`. A sessão é mantida por cookie assinado e expira em oito horas. Para publicar o sistema, defina também um `SESSION_SECRET` longo e troque a senha padrão; a lista de sessões fica em memória e é encerrada ao reiniciar o servidor.
 
