@@ -1,15 +1,36 @@
 import "dotenv/config";
 import express from "express";
-import pg from "pg";
+import mysql from "mysql2/promise";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const { Pool } = pg;
 const app = express();
 const port = Number(process.env.PORT) || 3000;
 const directory = path.dirname(fileURLToPath(import.meta.url));
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const mysqlPort = Number(process.env.MYSQL_PORT || 3306);
+const databaseConfigured = Boolean(process.env.MYSQL_HOST && process.env.MYSQL_USER && process.env.MYSQL_DATABASE)
+  && Number.isInteger(mysqlPort)
+  && mysqlPort > 0
+  && mysqlPort <= 65535;
+const pool = databaseConfigured ? mysql.createPool({
+  host: process.env.MYSQL_HOST,
+  port: mysqlPort,
+  user: process.env.MYSQL_USER,
+  password: process.env.MYSQL_PASSWORD || "",
+  database: process.env.MYSQL_DATABASE,
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0,
+  timezone: "Z",
+  supportBigNumbers: true,
+  bigNumberStrings: true
+}) : null;
+pool?.on("connection", (connection) => {
+  connection.query("SET time_zone = '+00:00'", (error) => {
+    if (error) console.error("Falha ao definir o fuso UTC no MySQL:", error.message);
+  });
+});
 const sessions = new Map();
 const sessionDuration = 8 * 60 * 60 * 1000;
 const sessionSecret = process.env.SESSION_SECRET || randomBytes(32).toString("hex");
@@ -80,6 +101,7 @@ app.post("/api/logout", (request, response) => {
 });
 
 app.get("/api/health", async (_request, response) => {
+  if (!pool) return response.status(503).json({ status: "degraded", database: "not_configured" });
   try {
     await pool.query("SELECT 1");
     response.json({ status: "ok", database: "connected" });
@@ -128,11 +150,11 @@ function mapOrder(row) {
 
 app.get("/api/orders", async (request, response) => {
   try {
-    const { rows } = await pool.query("SELECT * FROM parcels ORDER BY received_at DESC LIMIT 500");
+    const [rows] = await pool.query("SELECT * FROM parcels ORDER BY received_at DESC LIMIT 500");
     response.json(rows.map(mapOrder));
   } catch (error) {
     console.error("Falha ao consultar encomendas:", error.message);
-    response.status(503).json({ error: "Banco indisponível. Configure o PostgreSQL e execute db/schema.sql." });
+    response.status(503).json({ error: "Banco indisponível. Configure o MySQL e execute db/schema.sql no MySQL Workbench." });
   }
 });
 
@@ -143,30 +165,32 @@ app.post("/api/orders", async (request, response) => {
   }
   if (!/^[A-C]$/.test(building)) return response.status(400).json({ error: "Bloco inválido." });
   try {
-    const { rows } = await pool.query(
-      "INSERT INTO parcels (resident, building, apartment, carrier, porter, notes) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
+    const [result] = await pool.execute(
+      "INSERT INTO parcels (resident, building, apartment, carrier, porter, notes) VALUES (?, ?, ?, ?, ?, ?)",
       [resident.trim(), building, apartment.trim(), carrier?.trim() || "Não informado", porter.trim(), notes?.trim() || null]
     );
+    const [rows] = await pool.execute("SELECT * FROM parcels WHERE id = ?", [result.insertId]);
     response.status(201).json(mapOrder(rows[0]));
   } catch (error) {
     console.error("Falha ao registrar encomenda:", error.message);
-    response.status(503).json({ error: "Não foi possível salvar a encomenda no PostgreSQL." });
+    response.status(503).json({ error: "Não foi possível salvar a encomenda no MySQL." });
   }
 });
 
 app.patch("/api/orders/:id/pickup", async (request, response) => {
-  const id = Number(request.params.id);
-  if (!Number.isInteger(id) || id < 1) return response.status(400).json({ error: "Identificador inválido." });
+  const id = request.params.id;
+  if (!/^[1-9]\d*$/.test(id)) return response.status(400).json({ error: "Identificador inválido." });
   try {
-    const { rows } = await pool.query(
-      "UPDATE parcels SET status = 'picked_up', picked_up_at = NOW() WHERE id = $1 AND status = 'pending' RETURNING *",
+    const [result] = await pool.execute(
+      "UPDATE parcels SET status = 'picked_up', picked_up_at = UTC_TIMESTAMP(3) WHERE id = ? AND status = 'pending'",
       [id]
     );
-    if (!rows[0]) return response.status(404).json({ error: "Encomenda pendente não encontrada." });
+    if (!result.affectedRows) return response.status(404).json({ error: "Encomenda pendente não encontrada." });
+    const [rows] = await pool.execute("SELECT * FROM parcels WHERE id = ?", [id]);
     response.json(mapOrder(rows[0]));
   } catch (error) {
     console.error("Falha ao confirmar retirada:", error.message);
-    response.status(503).json({ error: "Não foi possível confirmar a retirada no PostgreSQL." });
+    response.status(503).json({ error: "Não foi possível confirmar a retirada no MySQL." });
   }
 });
 
@@ -174,7 +198,7 @@ app.listen(port, () => console.log(`Vitória Régia disponível em http://localh
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, async () => {
-    await pool.end();
+    if (pool) await pool.end();
     process.exit(0);
   });
 }
