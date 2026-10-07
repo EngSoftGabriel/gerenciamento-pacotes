@@ -238,7 +238,16 @@ app.patch("/api/orders/:id/pickup", async (request, response) => {
   }
 });
 
-app.listen(port, () => console.log(`Vitória Régia disponível em http://localhost:${port}`));
+const server = app.listen(port, () => console.log(`Vitória Régia disponível em http://localhost:${port}`));
+server.on("error", async (error) => {
+  if (error.code === "EADDRINUSE") {
+    console.error(`A porta ${port} já está em uso. A aplicação pode já estar rodando; feche a outra instância ou configure outra porta pela variável PORT.`);
+  } else {
+    console.error(`Não foi possível iniciar o servidor na porta ${port}:`, error.message);
+  }
+  if (pool) await pool.end();
+  process.exitCode = 1;
+});
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, async () => {
@@ -246,4 +255,3 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
     process.exit(0);
   });
 }
-

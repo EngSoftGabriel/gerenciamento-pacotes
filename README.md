@@ -8,6 +8,8 @@ Painel web para a portaria registrar encomendas, acompanhar retiradas e consulta
 2. Execute `npm install` e depois `npm start`.
 3. Acesse http://localhost:3000.
 
+Se a porta 3000 já estiver em uso, a aplicação pode já estar rodando. Não inicie outra cópia; acesse a instância existente ou configure uma porta livre usando `PORT` no `.env`.
+
 O acesso inicial é `admin` / `admin`. Sem MySQL configurado, a interface começa vazia e não salva novos registros. Para consultar as mesmas encomendas em mais de um dispositivo, todos devem acessar a mesma instalação do servidor, conectada a este banco persistente.
 
 As credenciais podem ser alteradas com `ADMIN_USERNAME` e `ADMIN_PASSWORD`. A sessão é mantida por cookie assinado e expira em oito horas. As sessões ficam em memória e são encerradas ao reiniciar o servidor; mantenha uma única instância do Node enquanto essa implementação de sessão for usada.
@@ -109,4 +111,3 @@ Rotas iniciais: `POST /api/login`, `POST /api/logout`, `GET /api/health`, `GET /
 - Moradores e configurações: telas iniciais para evolução do protótipo.
 
 O banco inicial armazena os dados operacionais das encomendas; notificações e cadastro relacional de moradores ficam para as próximas etapas.
-
