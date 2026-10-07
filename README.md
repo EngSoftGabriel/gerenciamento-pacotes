@@ -89,6 +89,25 @@ Execute `sh deploy/backup-mysql.sh` para criar um dump SQL com permissões restr
 
 **Limite da autenticação atual:** mantenha uma única instância do app. Sessões são armazenadas em memória e os usuários terão de entrar novamente após reinício/atualização; não escale horizontalmente sem migrar as sessões para armazenamento compartilhado.
 
+## Deploy alternativo na Vercel
+
+O entrypoint `server.js` inicia o servidor Express/Node, e os assets estáticos ficam em `public/` para serem servidos pela CDN da Vercel. Ao importar o repositório, configure a raiz do projeto para a raiz do repositório, selecione o preset Express se solicitado e deixe o diretório de saída vazio. Cadastre as variáveis abaixo em **Settings → Environment Variables**, no ambiente Production, e faça um novo deploy:
+
+```dotenv
+MYSQL_HOST=hostname-do-mysql-remoto
+MYSQL_PORT=3306
+MYSQL_USER=vitoria_app
+MYSQL_PASSWORD=senha-exclusiva-do-banco
+MYSQL_DATABASE=vitoria_regia
+ADMIN_USERNAME=usuario-administrador
+ADMIN_PASSWORD=senha-exclusiva-com-pelo-menos-12-caracteres
+SESSION_SECRET=segredo-aleatorio-com-pelo-menos-32-caracteres
+```
+
+O MySQL precisa estar hospedado em um serviço acessível pela Vercel; `127.0.0.1` e `localhost` apontam para a própria função, não para seu computador. Configure rede/TLS conforme o provedor e aplique `db/schema.sql` e as permissões mínimas no banco remoto. Não cadastre valores `REPLACE_` nem use os segredos locais de desenvolvimento. Valide `/api/health`, o login e as operações de encomendas após o deploy.
+
+**Limitação importante:** as sessões atuais ficam em memória e funções serverless podem reiniciar ou atender requisições em instâncias distintas. Para uso confiável em produção, migre sessões para armazenamento compartilhado antes de depender desta autenticação.
+
 Esta mudança troca o driver e o esquema para MySQL, mas não migra dados que já estejam em um PostgreSQL. Se houver registros antigos nesse banco, exporte-os e importe-os separadamente antes de desativar o PostgreSQL.
 
 ## Exemplos para desenvolvimento

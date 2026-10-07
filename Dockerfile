@@ -6,7 +6,7 @@ WORKDIR /app
 COPY --chown=node:node package.json package-lock.json ./
 RUN npm ci --omit=dev
 
-COPY --chown=node:node server.js app.js login.js install.js index.html login.html styles.css manifest.webmanifest service-worker.js ./
+COPY --chown=node:node server.js app.js index.html login.html ./
 COPY --chown=node:node public ./public
 
 USER node

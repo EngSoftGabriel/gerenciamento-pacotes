@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 const app = express();
 const port = Number(process.env.PORT) || 3000;
 const directory = path.dirname(fileURLToPath(import.meta.url));
+const publicDirectory = path.join(directory, "public");
 const mysqlPort = Number(process.env.MYSQL_PORT || 3306);
 const databaseConfigured = Boolean(process.env.MYSQL_HOST && process.env.MYSQL_USER && process.env.MYSQL_DATABASE)
   && Number.isInteger(mysqlPort)
@@ -147,16 +148,11 @@ app.get("/index.html", (request, response) => {
   response.setHeader("Cache-Control", "no-store");
   response.sendFile(path.join(directory, "index.html"));
 });
-app.get("/styles.css", (_request, response) => response.sendFile(path.join(directory, "styles.css")));
-app.get("/brand-mark.svg", (_request, response) => response.sendFile(path.join(directory, "public", "brand-mark.svg")));
-app.get("/manifest.webmanifest", (_request, response) => response.sendFile(path.join(directory, "manifest.webmanifest")));
-app.get("/service-worker.js", (_request, response) => {
-  response.setHeader("Cache-Control", "no-cache");
-  response.sendFile(path.join(directory, "service-worker.js"));
-});
-app.get("/install.js", (_request, response) => response.sendFile(path.join(directory, "install.js")));
-app.use("/icons", express.static(path.join(directory, "public", "icons"), { maxAge: "1d" }));
-app.get("/login.js", (_request, response) => response.sendFile(path.join(directory, "login.js")));
+app.use(express.static(publicDirectory, {
+  setHeaders(response, filePath) {
+    if (path.basename(filePath) === "service-worker.js") response.setHeader("Cache-Control", "no-cache");
+  }
+}));
 app.get("/app.js", requireLogin, (_request, response) => response.sendFile(path.join(directory, "app.js")));
 app.use("/api", requireLogin, (_request, response, next) => {
   response.setHeader("Cache-Control", "no-store");
