@@ -10,7 +10,9 @@ Painel web para a portaria registrar encomendas, acompanhar retiradas e consulta
 
 O acesso inicial é `admin` / `admin`. Sem MySQL configurado, a interface começa vazia e não salva novos registros. Para consultar as mesmas encomendas em mais de um dispositivo, todos devem acessar a mesma instalação do servidor, conectada a este banco persistente.
 
-As credenciais podem ser alteradas com `ADMIN_USERNAME` e `ADMIN_PASSWORD`. A sessão é mantida por cookie assinado e expira em oito horas. Para publicar o sistema, defina também um `SESSION_SECRET` longo e troque a senha padrão; a lista de sessões fica em memória e é encerrada ao reiniciar o servidor.
+As credenciais podem ser alteradas com `ADMIN_USERNAME` e `ADMIN_PASSWORD`. A sessão é mantida por cookie assinado e expira em oito horas. As sessões ficam em memória e são encerradas ao reiniciar o servidor; mantenha uma única instância do Node enquanto essa implementação de sessão for usada.
+
+O modo de demonstração usa `admin` / `admin` por padrão e não é seguro para publicação. Em produção, defina `NODE_ENV=production`, `ADMIN_USERNAME`, uma `ADMIN_PASSWORD` exclusiva com pelo menos 12 caracteres e um `SESSION_SECRET` aleatório com pelo menos 32 caracteres. O servidor se recusa a iniciar em produção se essas credenciais ou a configuração do banco estiverem ausentes/inseguras. Gere um segredo com `node -e "console.log(require('node:crypto').randomBytes(48).toString('hex'))"` e não o compartilhe nem o versione.
 
 ## Instalar no celular
 
@@ -21,8 +23,17 @@ O painel é um PWA. No Android, use **Instalar app** e confirme o prompt do nave
 Requisitos: MySQL Server 8.0.16 ou superior, MySQL Workbench e Node.js 18 ou superior. O Workbench é o cliente gráfico; o MySQL Server precisa estar instalado e ativo para armazenar os dados.
 
 1. Abra o MySQL Workbench e conecte-se ao servidor local usando uma conta administradora.
-2. Abra `db/schema.sql` (File → Open SQL Script) e execute o script com o botão do raio, usando uma conta administradora do MySQL. Ele cria o banco `vitoria_regia`, a tabela `parcels`, as restrições, os índices e o usuário `vitoria_app` com as permissões da aplicação. Antes de executar, defina uma senha forte na instrução `CREATE USER` do script.
-3. Crie um arquivo chamado `.env` na raiz do projeto, ao lado de `package.json`, e preencha:
+2. Abra `db/schema.sql` (File → Open SQL Script) e execute o script com o botão do raio, usando uma conta administradora do MySQL. Ele cria o banco `vitoria_regia`, a tabela `parcels`, as restrições e os índices. O script não cria contas nem contém senhas.
+3. Ainda como administradora, crie uma conta exclusiva para a aplicação e conceda somente as permissões necessárias. Troque a senha de exemplo por uma senha forte antes de executar; use o host específico do servidor da aplicação, não `%` em produção:
+
+	```sql
+	CREATE USER IF NOT EXISTS 'vitoria_app'@'127.0.0.1' IDENTIFIED BY 'SUBSTITUA_POR_UMA_SENHA_FORTE';
+	ALTER USER 'vitoria_app'@'127.0.0.1' IDENTIFIED BY 'SUBSTITUA_POR_UMA_SENHA_FORTE';
+	GRANT SELECT, INSERT, UPDATE ON vitoria_regia.* TO 'vitoria_app'@'127.0.0.1';
+	```
+
+	Se já existir a conta, `ALTER USER` troca a senha; confira/remova permissões antigas que não sejam necessárias. Para um servidor Node em outra máquina, substitua `127.0.0.1` pelo endereço/IP dessa máquina e restrinja a conexão ao MySQL pela rede/firewall.
+4. Crie um arquivo chamado `.env` na raiz do projeto, ao lado de `package.json`, e preencha:
 
 	```dotenv
 	PORT=3000
@@ -36,11 +47,13 @@ Requisitos: MySQL Server 8.0.16 ou superior, MySQL Workbench e Node.js 18 ou sup
 	SESSION_SECRET=defina-um-segredo-aleatorio-longo
 	```
 
-	Substitua os três valores de exemplo por valores fortes. `MYSQL_PASSWORD` deve ser exatamente a mesma senha configurada para `vitoria_app` no `schema.sql`. Se o usuário já existir, `CREATE USER IF NOT EXISTS` não altera a senha; nesse caso, atualize-a com `ALTER USER` e use a mesma senha no `.env`.
-4. No terminal, execute `npm install` e depois `npm start`. A API lê `.env` ao iniciar; reinicie-a sempre que alterar essas configurações.
-5. Acesse `http://localhost:3000/api/health`. O resultado esperado é `{"status":"ok","database":"connected"}`. Em seguida, entre no painel e teste o registro e a retirada de uma encomenda.
+	Use em `MYSQL_PASSWORD` exatamente a senha configurada para a conta MySQL. Não reutilize a senha do administrador do MySQL.
+5. No terminal, execute `npm install` e depois `npm start`. A API lê `.env` ao iniciar; reinicie-a sempre que alterar essas configurações. Para testar o modo de produção localmente, configure `NODE_ENV=production` somente depois de definir todos os segredos fortes.
+6. Acesse `http://localhost:3000/api/health`. O resultado esperado é `{"status":"ok","database":"connected"}`. Em seguida, entre no painel e teste o registro e a retirada de uma encomenda.
 
 Para acessar o painel pelo celular na mesma rede, mantenha o servidor Node em execução no computador e acesse o IP desse computador na porta configurada para a aplicação. O Node conecta ao MySQL local; não exponha a porta 3306 à internet. Em produção, configure as variáveis `MYSQL_*` no serviço que hospeda o Node e use um banco MySQL persistente acessível por esse serviço.
+
+Produção também exige HTTPS na terminação TLS (o cookie de sessão recebe a flag `Secure` em `NODE_ENV=production`), política de backup/restauração testada e monitoramento. `/api/health` verifica conectividade do banco, mas não substitui essas operações; atualmente sessões em memória são perdidas em reinícios e não compartilham estado entre múltiplas instâncias.
 
 Esta mudança troca o driver e o esquema para MySQL, mas não migra dados que já estejam em um PostgreSQL. Se houver registros antigos nesse banco, exporte-os e importe-os separadamente antes de desativar o PostgreSQL.
 

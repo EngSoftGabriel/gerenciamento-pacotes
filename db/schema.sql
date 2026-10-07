@@ -29,23 +29,4 @@ CREATE TABLE IF NOT EXISTS parcels (
   DEFAULT CHARACTER SET utf8mb4
   COLLATE utf8mb4_unicode_ci;
 
-CREATE USER IF NOT EXISTS 'vitoria_app'@'127.0.0.1'
-    IDENTIFIED BY '24432298';
-CREATE USER IF NOT EXISTS 'vitoria_app'@'localhost'
-    IDENTIFIED BY '24432298';
-
-ALTER USER 'vitoria_app'@'127.0.0.1' IDENTIFIED BY '24432298';
-ALTER USER 'vitoria_app'@'localhost' IDENTIFIED BY '24432298';
-
-GRANT SELECT, INSERT, UPDATE ON vitoria_regia.*
-    TO 'vitoria_app'@'127.0.0.1';
-GRANT SELECT, INSERT, UPDATE ON vitoria_regia.*
-    TO 'vitoria_app'@'localhost';
-
-  CREATE USER IF NOT EXISTS 'vitoria_app'@'127.0.0.1'
-IDENTIFIED BY '24432298';
-
-ALTER USER 'vitoria_app'@'127.0.0.1'
-IDENTIFIED BY '24432298';
-  
   

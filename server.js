@@ -13,6 +13,7 @@ const databaseConfigured = Boolean(process.env.MYSQL_HOST && process.env.MYSQL_U
   && Number.isInteger(mysqlPort)
   && mysqlPort > 0
   && mysqlPort <= 65535;
+const production = process.env.NODE_ENV === "production";
 const pool = databaseConfigured ? mysql.createPool({
   host: process.env.MYSQL_HOST,
   port: mysqlPort,
@@ -33,11 +34,32 @@ pool?.on("connection", (connection) => {
 });
 const sessions = new Map();
 const sessionDuration = 8 * 60 * 60 * 1000;
-const sessionSecret = process.env.SESSION_SECRET || randomBytes(32).toString("hex");
+const sessionSecret = process.env.SESSION_SECRET || (production ? "" : randomBytes(32).toString("hex"));
 const adminUsername = process.env.ADMIN_USERNAME || "admin";
 const adminPassword = process.env.ADMIN_PASSWORD || "admin";
 
+if (production) {
+  const configurationErrors = [];
+  if (!databaseConfigured || !process.env.MYSQL_PASSWORD) configurationErrors.push("configure MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PASSWORD e MYSQL_DATABASE");
+  if (!process.env.ADMIN_USERNAME || !process.env.ADMIN_PASSWORD || adminPassword === "admin" || adminPassword.length < 12) {
+    configurationErrors.push("configure ADMIN_USERNAME e uma ADMIN_PASSWORD exclusiva com pelo menos 12 caracteres");
+  }
+  if (!process.env.SESSION_SECRET || sessionSecret.length < 32) configurationErrors.push("configure SESSION_SECRET com pelo menos 32 caracteres aleatórios");
+  if (configurationErrors.length) {
+    throw new Error(`Configuração de produção inválida: ${configurationErrors.join("; ")}.`);
+  }
+} else if (adminPassword === "admin") {
+  console.warn("AVISO: acesso de demonstração ativo (admin/admin); altere ADMIN_USERNAME e ADMIN_PASSWORD antes de publicar.");
+}
+
 app.use(express.json({ limit: "32kb" }));
+app.disable("x-powered-by");
+app.use((_request, response, next) => {
+  response.setHeader("X-Content-Type-Options", "nosniff");
+  response.setHeader("X-Frame-Options", "DENY");
+  response.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  next();
+});
 
 function matchesSecret(value, expected) {
   if (typeof value !== "string") return false;
@@ -49,7 +71,7 @@ function matchesSecret(value, expected) {
 function getSessionId(request) {
   const cookie = request.headers.cookie?.split(";").map((part) => part.trim()).find((part) => part.startsWith("vr_session="));
   if (!cookie) return null;
-  const [sessionId, signature] = decodeURIComponent(cookie.slice("vr_session=".length)).split(".");
+  const [sessionId, signature] = cookie.slice("vr_session=".length).split(".");
   if (!sessionId || !signature) return null;
   const expectedSignature = createHmac("sha256", sessionSecret).update(sessionId).digest("base64url");
   if (!matchesSecret(signature, expectedSignature)) return null;
@@ -75,6 +97,7 @@ function setSessionCookie(response, sessionId) {
 
 function sendLoginPage(request, response) {
   if (getSessionId(request)) return response.redirect("/");
+  response.setHeader("Cache-Control", "no-store");
   response.sendFile(path.join(directory, "login.html"));
 }
 
@@ -105,7 +128,8 @@ app.get("/api/health", async (_request, response) => {
   try {
     await pool.query("SELECT 1");
     response.json({ status: "ok", database: "connected" });
-  } catch {
+  } catch (error) {
+    console.error("Falha na verificação de saúde do MySQL:", error.message);
     response.status(503).json({ status: "degraded", database: "disconnected" });
   }
 });
@@ -114,10 +138,12 @@ app.get("/login", sendLoginPage);
 app.get("/login.html", sendLoginPage);
 app.get("/", (request, response) => {
   if (!getSessionId(request)) return response.redirect("/login");
+  response.setHeader("Cache-Control", "no-store");
   response.sendFile(path.join(directory, "index.html"));
 });
 app.get("/index.html", (request, response) => {
   if (!getSessionId(request)) return response.redirect("/login");
+  response.setHeader("Cache-Control", "no-store");
   response.sendFile(path.join(directory, "index.html"));
 });
 app.get("/styles.css", (_request, response) => response.sendFile(path.join(directory, "styles.css")));
@@ -131,7 +157,10 @@ app.get("/install.js", (_request, response) => response.sendFile(path.join(direc
 app.use("/icons", express.static(path.join(directory, "public", "icons"), { maxAge: "1d" }));
 app.get("/login.js", (_request, response) => response.sendFile(path.join(directory, "login.js")));
 app.get("/app.js", requireLogin, (_request, response) => response.sendFile(path.join(directory, "app.js")));
-app.use("/api", requireLogin);
+app.use("/api", requireLogin, (_request, response, next) => {
+  response.setHeader("Cache-Control", "no-store");
+  next();
+});
 
 function mapOrder(row) {
   return {
@@ -150,7 +179,7 @@ function mapOrder(row) {
 
 app.get("/api/orders", async (request, response) => {
   try {
-    const [rows] = await pool.query("SELECT * FROM parcels ORDER BY received_at DESC LIMIT 500");
+    const [rows] = await pool.query("SELECT * FROM parcels ORDER BY received_at DESC");
     response.json(rows.map(mapOrder));
   } catch (error) {
     console.error("Falha ao consultar encomendas:", error.message);
@@ -160,16 +189,31 @@ app.get("/api/orders", async (request, response) => {
 
 app.post("/api/orders", async (request, response) => {
   const { resident, building, apartment, carrier, porter, notes } = request.body || {};
-  if (![resident, building, apartment, porter].every((value) => typeof value === "string" && value.trim())) {
+  const requiredFields = [
+    ["resident", resident, 140],
+    ["building", building, 1],
+    ["apartment", apartment, 12],
+    ["porter", porter, 140]
+  ];
+  if (requiredFields.some(([, value]) => typeof value !== "string" || !value.trim())) {
     return response.status(400).json({ error: "Morador, bloco, apartamento e porteiro são obrigatórios." });
   }
-  if (!/^[A-C]$/.test(building)) return response.status(400).json({ error: "Bloco inválido." });
+  const oversizedField = requiredFields.find(([, value, maxLength]) => Array.from(value.trim()).length > maxLength);
+  if (oversizedField) return response.status(400).json({ error: `${oversizedField[0]} excede o limite de caracteres permitido.` });
+  if (!/^[A-C]$/.test(building.trim())) return response.status(400).json({ error: "Bloco inválido." });
+  if (carrier !== undefined && carrier !== null && typeof carrier !== "string") return response.status(400).json({ error: "Transportadora inválida." });
+  if (notes !== undefined && notes !== null && typeof notes !== "string") return response.status(400).json({ error: "Observações inválidas." });
+  const cleanCarrier = carrier?.trim() || "Não informado";
+  const cleanNotes = notes?.trim() || null;
+  if (Array.from(cleanCarrier).length > 100) return response.status(400).json({ error: "Transportadora deve ter no máximo 100 caracteres." });
+  if (cleanNotes && Array.from(cleanNotes).length > 16000) return response.status(400).json({ error: "Observações devem ter no máximo 16000 caracteres." });
   try {
     const [result] = await pool.execute(
       "INSERT INTO parcels (resident, building, apartment, carrier, porter, notes) VALUES (?, ?, ?, ?, ?, ?)",
-      [resident.trim(), building, apartment.trim(), carrier?.trim() || "Não informado", porter.trim(), notes?.trim() || null]
+      [resident.trim(), building.trim(), apartment.trim(), cleanCarrier, porter.trim(), cleanNotes]
     );
     const [rows] = await pool.execute("SELECT * FROM parcels WHERE id = ?", [result.insertId]);
+    if (!rows.length) throw new Error("A encomenda foi inserida, mas não pôde ser lida de volta.");
     response.status(201).json(mapOrder(rows[0]));
   } catch (error) {
     console.error("Falha ao registrar encomenda:", error.message);
