@@ -37,14 +37,15 @@ const sessionDuration = 8 * 60 * 60 * 1000;
 const sessionSecret = process.env.SESSION_SECRET || (production ? "" : randomBytes(32).toString("hex"));
 const adminUsername = process.env.ADMIN_USERNAME || "admin";
 const adminPassword = process.env.ADMIN_PASSWORD || "admin";
+const isPlaceholder = (value) => /^(REPLACE_|CHANGE_ME|YOUR_)/i.test(value);
 
 if (production) {
   const configurationErrors = [];
-  if (!databaseConfigured || !process.env.MYSQL_PASSWORD) configurationErrors.push("configure MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PASSWORD e MYSQL_DATABASE");
-  if (!process.env.ADMIN_USERNAME || !process.env.ADMIN_PASSWORD || adminPassword === "admin" || adminPassword.length < 12) {
+  if (!databaseConfigured || !process.env.MYSQL_PASSWORD || isPlaceholder(process.env.MYSQL_PASSWORD)) configurationErrors.push("configure MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PASSWORD e MYSQL_DATABASE com credenciais reais");
+  if (!process.env.ADMIN_USERNAME || isPlaceholder(adminUsername) || !process.env.ADMIN_PASSWORD || isPlaceholder(adminPassword) || adminPassword === "admin" || adminPassword.length < 12) {
     configurationErrors.push("configure ADMIN_USERNAME e uma ADMIN_PASSWORD exclusiva com pelo menos 12 caracteres");
   }
-  if (!process.env.SESSION_SECRET || sessionSecret.length < 32) configurationErrors.push("configure SESSION_SECRET com pelo menos 32 caracteres aleatórios");
+  if (!process.env.SESSION_SECRET || isPlaceholder(sessionSecret) || sessionSecret.length < 32) configurationErrors.push("configure SESSION_SECRET com pelo menos 32 caracteres aleatórios");
   if (configurationErrors.length) {
     throw new Error(`Configuração de produção inválida: ${configurationErrors.join("; ")}.`);
   }

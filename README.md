@@ -57,6 +57,38 @@ Para acessar o painel pelo celular na mesma rede, mantenha o servidor Node em ex
 
 Produção também exige HTTPS na terminação TLS (o cookie de sessão recebe a flag `Secure` em `NODE_ENV=production`), política de backup/restauração testada e monitoramento. `/api/health` verifica conectividade do banco, mas não substitui essas operações; atualmente sessões em memória são perdidas em reinícios e não compartilham estado entre múltiplas instâncias.
 
+## Preparar produção em uma VPS Linux com Docker
+
+Esta implantação mantém a aplicação e o MySQL na mesma VPS: o banco fica somente na rede privada do Docker, os dados persistem no volume `mysql_data`, e a porta da aplicação fica acessível apenas localmente para o proxy HTTPS.
+
+1. Na VPS, instale Docker Engine com o plugin Docker Compose e Caddy conforme a documentação oficial da distribuição. Aponte um domínio para o IP público da VPS e permita as portas 80 e 443 no firewall; não abra a porta 3306.
+2. Envie/clone o repositório para a VPS. Não envie `.env`, `.env.production` nem cópias de backups ao Git. Crie a configuração privada:
+
+	```sh
+	cp .env.production.example .env.production
+	chmod 600 .env.production
+	openssl rand -hex 32
+	```
+
+	Edite `.env.production` e substitua todos os valores `REPLACE_` por segredos exclusivos. Gere senhas diferentes para MySQL root e aplicação com `openssl rand -hex 32`; escolha uma senha administrativa exclusiva com pelo menos 12 caracteres e use `openssl rand -hex 32` para `SESSION_SECRET`. O serviço recusa iniciar com valores de exemplo. Não publique esses valores nem os coloque no Caddyfile.
+3. Edite `deploy/Caddyfile`, substitua `SEU_DOMINIO` pelo domínio real, instale-o em `/etc/caddy/Caddyfile` e reinicie Caddy. Caddy obterá e renovará o certificado TLS automaticamente quando DNS e firewall estiverem corretos.
+4. Na raiz do projeto, inicie os serviços:
+
+	```sh
+	docker compose --env-file .env.production config --quiet
+	docker compose --env-file .env.production up -d --build
+	docker compose ps
+	```
+
+	`config` valida a composição sem iniciar os contêineres. O banco só recebe o schema e o grant restrito na primeira inicialização do volume. A aplicação roda como usuário não-root, sem filesystem gravável e sem capacidades Linux adicionais. O Compose fixa o banco em `vitoria_regia` e o usuário da aplicação em `vitoria_app`, conforme o schema.
+5. Valide `https://SEU_DOMINIO/api/health` (esperado: `{"status":"ok","database":"connected"}`), faça login e registre uma encomenda real de teste autorizada. Confirme que o registro permanece depois de recarregar a página.
+
+**Persistência e manutenção:** `mysql_data` mantém os dados durante recriações/atualizações do contêiner, mas não protege contra falha ou perda da VPS. Configure backups criptografados fora da máquina e teste restauração antes de uso real. Atualizações do schema em volumes existentes precisam de migrações explícitas; scripts em `/docker-entrypoint-initdb.d` não são reexecutados após o volume inicializar. Faça backup antes de atualizar.
+
+Execute `sh deploy/backup-mysql.sh` para criar um dump SQL com permissões restritas na pasta `backups/` (ignorada pelo Git). Agende essa execução com cron e transfira os backups para armazenamento externo criptografado; um dump mantido somente na VPS não é recuperação contra perda do servidor. Valide cada rotina por meio de restauração em um ambiente separado.
+
+**Limite da autenticação atual:** mantenha uma única instância do app. Sessões são armazenadas em memória e os usuários terão de entrar novamente após reinício/atualização; não escale horizontalmente sem migrar as sessões para armazenamento compartilhado.
+
 Esta mudança troca o driver e o esquema para MySQL, mas não migra dados que já estejam em um PostgreSQL. Se houver registros antigos nesse banco, exporte-os e importe-os separadamente antes de desativar o PostgreSQL.
 
 ## Exemplos para desenvolvimento
