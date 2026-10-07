@@ -109,3 +109,4 @@ Rotas iniciais: `POST /api/login`, `POST /api/logout`, `GET /api/health`, `GET /
 - Moradores e configurações: telas iniciais para evolução do protótipo.
 
 O banco inicial armazena os dados operacionais das encomendas; notificações e cadastro relacional de moradores ficam para as próximas etapas.
+

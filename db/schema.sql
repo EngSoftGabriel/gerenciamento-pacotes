@@ -30,3 +30,6 @@ CREATE TABLE IF NOT EXISTS parcels (
   COLLATE utf8mb4_unicode_ci;
 
   
+
+
+  
