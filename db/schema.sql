@@ -42,4 +42,10 @@ GRANT SELECT, INSERT, UPDATE ON vitoria_regia.*
 GRANT SELECT, INSERT, UPDATE ON vitoria_regia.*
     TO 'vitoria_app'@'localhost';
 
+  CREATE USER IF NOT EXISTS 'vitoria_app'@'127.0.0.1'
+IDENTIFIED BY '992954845';
+
+ALTER USER 'vitoria_app'@'127.0.0.1'
+IDENTIFIED BY '992954845';
+  
   
