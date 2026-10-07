@@ -44,11 +44,6 @@ function ordersForView() {
   });
 }
 
-function ordersLast30Days() {
-  const cutoff = addDays(new Date(), -30);
-  return state.orders.filter((order) => new Date(order.receivedAt) >= cutoff);
-}
-
 function updateChrome() {
   const titles = { dashboard: "Visão geral", orders: "Encomendas", reports: "Relatórios", residents: "Moradores", settings: "Configurações" };
   document.querySelector("#breadcrumbCurrent").textContent = titles[state.view];
@@ -119,10 +114,9 @@ function renderOrders() {
 }
 
 function renderReports() {
-  const reportOrders = ordersLast30Days();
   const porterCounts = new Map();
   const residentCounts = new Map();
-  reportOrders.forEach((order) => {
+  state.orders.forEach((order) => {
     porterCounts.set(order.porter || "Não informado", (porterCounts.get(order.porter || "Não informado") || 0) + 1);
     const residentKey = `${order.resident} · Apto ${order.apartment}`;
     residentCounts.set(residentKey, (residentCounts.get(residentKey) || 0) + 1);
@@ -130,15 +124,15 @@ function renderReports() {
   const porters = [...porterCounts].sort((a, b) => b[1] - a[1]);
   const frequentResidents = [...residentCounts].sort((a, b) => b[1] - a[1]).slice(0, 5);
   const maxPorter = Math.max(1, ...porters.map((item) => item[1]));
-  const total = reportOrders.length;
-  const pickupDurations = reportOrders
+  const total = state.orders.length;
+  const pickupDurations = state.orders
     .filter((order) => order.status === "picked_up" && order.pickedUpAt)
     .map((order) => new Date(order.pickedUpAt) - new Date(order.receivedAt))
     .filter((duration) => Number.isFinite(duration) && duration >= 0);
   const averagePickupMinutes = pickupDurations.length
     ? Math.round(pickupDurations.reduce((sum, duration) => sum + duration, 0) / pickupDurations.length / 60000)
     : null;
-  const blockCounts = reportOrders.reduce((counts, order) => {
+  const blockCounts = state.orders.reduce((counts, order) => {
     counts[order.building] = (counts[order.building] || 0) + 1;
     return counts;
   }, {});
@@ -178,13 +172,8 @@ function showToast(message) {
 }
 
 function exportOrders() {
-  const exportOrders = state.view === "reports" ? ordersLast30Days() : ordersForView();
-  const rows = [["ID", "Morador", "Bloco", "Apartamento", "Transportadora", "Porteiro", "Recebida em", "Status"], ...exportOrders.map((order) => [order.id, order.resident, order.building, order.apartment, order.carrier || "", order.porter || "", formatDate(order.receivedAt), order.status === "pending" ? "Pendente" : "Retirada"])];
-  const csv = rows.map((row) => row.map((value) => {
-    const text = String(value);
-    const safeText = /^[\t\r ]*[=+\-@]/.test(text) ? `'${text}` : text;
-    return `"${safeText.replaceAll('"', '""')}"`;
-  }).join(";")).join("\r\n");
+  const rows = [["ID", "Morador", "Bloco", "Apartamento", "Transportadora", "Porteiro", "Recebida em", "Status"], ...ordersForView().map((order) => [order.id, order.resident, order.building, order.apartment, order.carrier || "", order.porter || "", formatDate(order.receivedAt), order.status === "pending" ? "Pendente" : "Retirada"])];
+  const csv = rows.map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(";")).join("\r\n");
   const link = document.createElement("a");
   link.href = URL.createObjectURL(new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" }));
   link.download = "relatorio-encomendas.csv";
@@ -329,4 +318,3 @@ async function loadOrders() {
 }
 
 loadOrders();
-

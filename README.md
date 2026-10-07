@@ -8,13 +8,9 @@ Painel web para a portaria registrar encomendas, acompanhar retiradas e consulta
 2. Execute `npm install` e depois `npm start`.
 3. Acesse http://localhost:3000.
 
-Se a porta 3000 já estiver em uso, a aplicação pode já estar rodando. Não inicie outra cópia; acesse a instância existente ou configure uma porta livre usando `PORT` no `.env`.
-
 O acesso inicial é `admin` / `admin`. Sem MySQL configurado, a interface começa vazia e não salva novos registros. Para consultar as mesmas encomendas em mais de um dispositivo, todos devem acessar a mesma instalação do servidor, conectada a este banco persistente.
 
-As credenciais podem ser alteradas com `ADMIN_USERNAME` e `ADMIN_PASSWORD`. A sessão é mantida por cookie assinado e expira em oito horas. As sessões ficam em memória e são encerradas ao reiniciar o servidor; mantenha uma única instância do Node enquanto essa implementação de sessão for usada.
-
-O modo de demonstração usa `admin` / `admin` por padrão e não é seguro para publicação. Em produção, defina `NODE_ENV=production`, `ADMIN_USERNAME`, uma `ADMIN_PASSWORD` exclusiva com pelo menos 12 caracteres e um `SESSION_SECRET` aleatório com pelo menos 32 caracteres. O servidor se recusa a iniciar em produção se essas credenciais ou a configuração do banco estiverem ausentes/inseguras. Gere um segredo com `node -e "console.log(require('node:crypto').randomBytes(48).toString('hex'))"` e não o compartilhe nem o versione.
+As credenciais podem ser alteradas com `ADMIN_USERNAME` e `ADMIN_PASSWORD`. A sessão é mantida por cookie assinado e expira em oito horas. Para publicar o sistema, defina também um `SESSION_SECRET` longo e troque a senha padrão; a lista de sessões fica em memória e é encerrada ao reiniciar o servidor.
 
 ## Instalar no celular
 
@@ -25,130 +21,21 @@ O painel é um PWA. No Android, use **Instalar app** e confirme o prompt do nave
 Requisitos: MySQL Server 8.0.16 ou superior, MySQL Workbench e Node.js 18 ou superior. O Workbench é o cliente gráfico; o MySQL Server precisa estar instalado e ativo para armazenar os dados.
 
 1. Abra o MySQL Workbench e conecte-se ao servidor local usando uma conta administradora.
-2. Abra `db/schema.sql` (File → Open SQL Script) e execute o script com o botão do raio, usando uma conta administradora do MySQL. Ele cria o banco `vitoria_regia`, a tabela `parcels`, as restrições e os índices. O script não cria contas nem contém senhas.
-3. Ainda como administradora, crie uma conta exclusiva para a aplicação e conceda somente as permissões necessárias. Troque a senha de exemplo por uma senha forte antes de executar; use o host específico do servidor da aplicação, não `%` em produção:
+2. Abra `db/schema.sql` (File → Open SQL Script) e execute o script com o botão do raio. Ele cria o banco `vitoria_regia`, a tabela `parcels`, as restrições e os índices. A seção Schemas deve mostrar o banco e a tabela.
+3. Na aba SQL do Workbench, crie um usuário exclusivo para a aplicação e conceda apenas as permissões necessárias. Troque o valor de exemplo por uma senha forte:
 
 	```sql
-	CREATE USER IF NOT EXISTS 'vitoria_app'@'127.0.0.1' IDENTIFIED BY 'SUBSTITUA_POR_UMA_SENHA_FORTE';
-	ALTER USER 'vitoria_app'@'127.0.0.1' IDENTIFIED BY 'SUBSTITUA_POR_UMA_SENHA_FORTE';
+	CREATE USER IF NOT EXISTS 'vitoria_app'@'127.0.0.1' IDENTIFIED BY 'troque-esta-senha';
 	GRANT SELECT, INSERT, UPDATE ON vitoria_regia.* TO 'vitoria_app'@'127.0.0.1';
 	```
 
-	Se já existir a conta, `ALTER USER` troca a senha; confira/remova permissões antigas que não sejam necessárias. Para um servidor Node em outra máquina, substitua `127.0.0.1` pelo endereço/IP dessa máquina e restrinja a conexão ao MySQL pela rede/firewall.
-4. Crie um arquivo chamado `.env` na raiz do projeto, ao lado de `package.json`, e preencha:
-
-	```dotenv
-	PORT=3000
-	MYSQL_HOST=127.0.0.1
-	MYSQL_PORT=3306
-	MYSQL_USER=vitoria_app
-	MYSQL_PASSWORD=mesma-senha-definida-no-schema
-	MYSQL_DATABASE=vitoria_regia
-	ADMIN_USERNAME=admin
-	ADMIN_PASSWORD=defina-uma-senha-forte
-	SESSION_SECRET=defina-um-segredo-aleatorio-longo
-	```
-
-	Use em `MYSQL_PASSWORD` exatamente a senha configurada para a conta MySQL. Não reutilize a senha do administrador do MySQL.
-5. No terminal, execute `npm install` e depois `npm start`. A API lê `.env` ao iniciar; reinicie-a sempre que alterar essas configurações. Para testar o modo de produção localmente, configure `NODE_ENV=production` somente depois de definir todos os segredos fortes.
+4. Copie `.env.example` para `.env` na raiz do projeto e ajuste `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`, `MYSQL_PASSWORD` e `MYSQL_DATABASE`. Para a instalação local, os valores iniciais de host, porta e banco já correspondem à configuração padrão do MySQL.
+5. No terminal, execute `npm install` e depois `npm start`. A API lê `.env` ao iniciar; reinicie-a sempre que alterar essas configurações.
 6. Acesse `http://localhost:3000/api/health`. O resultado esperado é `{"status":"ok","database":"connected"}`. Em seguida, entre no painel e teste o registro e a retirada de uma encomenda.
 
 Para acessar o painel pelo celular na mesma rede, mantenha o servidor Node em execução no computador e acesse o IP desse computador na porta configurada para a aplicação. O Node conecta ao MySQL local; não exponha a porta 3306 à internet. Em produção, configure as variáveis `MYSQL_*` no serviço que hospeda o Node e use um banco MySQL persistente acessível por esse serviço.
 
-Produção também exige HTTPS na terminação TLS (o cookie de sessão recebe a flag `Secure` em `NODE_ENV=production`), política de backup/restauração testada e monitoramento. `/api/health` verifica conectividade do banco, mas não substitui essas operações; atualmente sessões em memória são perdidas em reinícios e não compartilham estado entre múltiplas instâncias.
-
-## Preparar produção em uma VPS Linux com Docker
-
-Esta implantação mantém a aplicação e o MySQL na mesma VPS: o banco fica somente na rede privada do Docker, os dados persistem no volume `mysql_data`, e a porta da aplicação fica acessível apenas localmente para o proxy HTTPS.
-
-1. Na VPS, instale Docker Engine com o plugin Docker Compose e Caddy conforme a documentação oficial da distribuição. Aponte um domínio para o IP público da VPS e permita as portas 80 e 443 no firewall; não abra a porta 3306.
-2. Envie/clone o repositório para a VPS. Não envie `.env`, `.env.production` nem cópias de backups ao Git. Crie a configuração privada:
-
-	```sh
-	cp .env.production.example .env.production
-	chmod 600 .env.production
-	openssl rand -hex 32
-	```
-
-	Edite `.env.production` e substitua todos os valores `REPLACE_` por segredos exclusivos. Gere senhas diferentes para MySQL root e aplicação com `openssl rand -hex 32`; escolha uma senha administrativa exclusiva com pelo menos 12 caracteres e use `openssl rand -hex 32` para `SESSION_SECRET`. O serviço recusa iniciar com valores de exemplo. Não publique esses valores nem os coloque no Caddyfile.
-3. Edite `deploy/Caddyfile`, substitua `SEU_DOMINIO` pelo domínio real, instale-o em `/etc/caddy/Caddyfile` e reinicie Caddy. Caddy obterá e renovará o certificado TLS automaticamente quando DNS e firewall estiverem corretos.
-4. Na raiz do projeto, inicie os serviços:
-
-	```sh
-	docker compose --env-file .env.production config --quiet
-	docker compose --env-file .env.production up -d --build
-	docker compose ps
-	```
-
-	`config` valida a composição sem iniciar os contêineres. O banco só recebe o schema e o grant restrito na primeira inicialização do volume. A aplicação roda como usuário não-root, sem filesystem gravável e sem capacidades Linux adicionais. O Compose fixa o banco em `vitoria_regia` e o usuário da aplicação em `vitoria_app`, conforme o schema.
-5. Valide `https://SEU_DOMINIO/api/health` (esperado: `{"status":"ok","database":"connected"}`), faça login e registre uma encomenda real de teste autorizada. Confirme que o registro permanece depois de recarregar a página.
-
-**Persistência e manutenção:** `mysql_data` mantém os dados durante recriações/atualizações do contêiner, mas não protege contra falha ou perda da VPS. Configure backups criptografados fora da máquina e teste restauração antes de uso real. Atualizações do schema em volumes existentes precisam de migrações explícitas; scripts em `/docker-entrypoint-initdb.d` não são reexecutados após o volume inicializar. Faça backup antes de atualizar.
-
-Execute `sh deploy/backup-mysql.sh` para criar um dump SQL com permissões restritas na pasta `backups/` (ignorada pelo Git). Agende essa execução com cron e transfira os backups para armazenamento externo criptografado; um dump mantido somente na VPS não é recuperação contra perda do servidor. Valide cada rotina por meio de restauração em um ambiente separado.
-
-**Limite da autenticação atual:** mantenha uma única instância do app. Sessões são armazenadas em memória e os usuários terão de entrar novamente após reinício/atualização; não escale horizontalmente sem migrar as sessões para armazenamento compartilhado.
-
-## Deploy alternativo na Vercel
-
-O entrypoint `server.js` inicia o servidor Express/Node, e os assets estáticos ficam em `public/` para serem servidos pela CDN da Vercel. Ao importar o repositório, configure a raiz do projeto para a raiz do repositório, selecione o preset Express se solicitado e deixe o diretório de saída vazio. Cadastre as variáveis abaixo em **Settings → Environment Variables**, no ambiente Production, e faça um novo deploy:
-
-```dotenv
-MYSQL_HOST=hostname-do-mysql-remoto
-MYSQL_PORT=3306
-MYSQL_USER=vitoria_app
-MYSQL_PASSWORD=senha-exclusiva-do-banco
-MYSQL_DATABASE=vitoria_regia
-ADMIN_USERNAME=usuario-administrador
-ADMIN_PASSWORD=senha-exclusiva-com-pelo-menos-12-caracteres
-SESSION_SECRET=segredo-aleatorio-com-pelo-menos-32-caracteres
-```
-
-O MySQL precisa estar hospedado em um serviço acessível pela Vercel; `127.0.0.1` e `localhost` apontam para a própria função, não para seu computador. Configure rede/TLS conforme o provedor e aplique `db/schema.sql` e as permissões mínimas no banco remoto. Não cadastre valores `REPLACE_` nem use os segredos locais de desenvolvimento. Valide `/api/health`, o login e as operações de encomendas após o deploy.
-
-**Limitação importante:** as sessões atuais ficam em memória e funções serverless podem reiniciar ou atender requisições em instâncias distintas. Para uso confiável em produção, migre sessões para armazenamento compartilhado antes de depender desta autenticação.
-
 Esta mudança troca o driver e o esquema para MySQL, mas não migra dados que já estejam em um PostgreSQL. Se houver registros antigos nesse banco, exporte-os e importe-os separadamente antes de desativar o PostgreSQL.
-
-## Exemplos para desenvolvimento
-
-Use os exemplos abaixo apenas em um banco de desenvolvimento. Os nomes das colunas e dos campos da API permanecem em inglês porque são os identificadores usados pelo sistema; os dados de exemplo estão em português.
-
-Para cadastrar uma encomenda de teste no MySQL Workbench:
-
-```sql
-INSERT INTO parcels (resident, building, apartment, carrier, porter, notes)
-VALUES ('Mariana Costa', 'A', '203', 'Correios', 'João Silva', 'Encomenda de teste para desenvolvimento');
-
-SET @encomenda_teste_id = LAST_INSERT_ID();
-
-SELECT id, resident, building, apartment, carrier, porter, status, received_at
-FROM parcels
-WHERE id = @encomenda_teste_id;
-
-UPDATE parcels
-SET status = 'picked_up', picked_up_at = UTC_TIMESTAMP(3)
-WHERE id = @encomenda_teste_id AND status = 'pending';
-
-SELECT id, resident, status, picked_up_at
-FROM parcels
-WHERE id = @encomenda_teste_id;
-```
-
-Execute o bloco na mesma conexão do Workbench para que `LAST_INSERT_ID()` use o identificador da encomenda recém-criada. Para testar o cadastro pela API (`POST /api/orders`), o corpo JSON de exemplo é:
-
-```json
-{
-	"resident": "Mariana Costa",
-	"building": "A",
-	"apartment": "203",
-	"carrier": "Correios",
-	"porter": "João Silva",
-	"notes": "Encomenda de teste para desenvolvimento"
-}
-```
-
-O endpoint exige login; também é possível registrar e confirmar a retirada pela tela **Encomendas**.
 
 Rotas iniciais: `POST /api/login`, `POST /api/logout`, `GET /api/health`, `GET /api/orders`, `POST /api/orders` e `PATCH /api/orders/:id/pickup`. As rotas do dashboard e da API de encomendas exigem sessão autenticada.
 

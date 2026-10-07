@@ -8,13 +8,11 @@ import { fileURLToPath } from "node:url";
 const app = express();
 const port = Number(process.env.PORT) || 3000;
 const directory = path.dirname(fileURLToPath(import.meta.url));
-const publicDirectory = path.join(directory, "public");
 const mysqlPort = Number(process.env.MYSQL_PORT || 3306);
 const databaseConfigured = Boolean(process.env.MYSQL_HOST && process.env.MYSQL_USER && process.env.MYSQL_DATABASE)
   && Number.isInteger(mysqlPort)
   && mysqlPort > 0
   && mysqlPort <= 65535;
-const production = process.env.NODE_ENV === "production";
 const pool = databaseConfigured ? mysql.createPool({
   host: process.env.MYSQL_HOST,
   port: mysqlPort,
@@ -35,33 +33,11 @@ pool?.on("connection", (connection) => {
 });
 const sessions = new Map();
 const sessionDuration = 8 * 60 * 60 * 1000;
-const sessionSecret = process.env.SESSION_SECRET || (production ? "" : randomBytes(32).toString("hex"));
+const sessionSecret = process.env.SESSION_SECRET || randomBytes(32).toString("hex");
 const adminUsername = process.env.ADMIN_USERNAME || "admin";
 const adminPassword = process.env.ADMIN_PASSWORD || "admin";
-const isPlaceholder = (value) => /^(REPLACE_|CHANGE_ME|YOUR_)/i.test(value);
-
-if (production) {
-  const configurationErrors = [];
-  if (!databaseConfigured || !process.env.MYSQL_PASSWORD || isPlaceholder(process.env.MYSQL_PASSWORD)) configurationErrors.push("configure MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PASSWORD e MYSQL_DATABASE com credenciais reais");
-  if (!process.env.ADMIN_USERNAME || isPlaceholder(adminUsername) || !process.env.ADMIN_PASSWORD || isPlaceholder(adminPassword) || adminPassword === "admin" || adminPassword.length < 12) {
-    configurationErrors.push("configure ADMIN_USERNAME e uma ADMIN_PASSWORD exclusiva com pelo menos 12 caracteres");
-  }
-  if (!process.env.SESSION_SECRET || isPlaceholder(sessionSecret) || sessionSecret.length < 32) configurationErrors.push("configure SESSION_SECRET com pelo menos 32 caracteres aleatórios");
-  if (configurationErrors.length) {
-    throw new Error(`Configuração de produção inválida: ${configurationErrors.join("; ")}.`);
-  }
-} else if (adminPassword === "admin") {
-  console.warn("AVISO: acesso de demonstração ativo (admin/admin); altere ADMIN_USERNAME e ADMIN_PASSWORD antes de publicar.");
-}
 
 app.use(express.json({ limit: "32kb" }));
-app.disable("x-powered-by");
-app.use((_request, response, next) => {
-  response.setHeader("X-Content-Type-Options", "nosniff");
-  response.setHeader("X-Frame-Options", "DENY");
-  response.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
-  next();
-});
 
 function matchesSecret(value, expected) {
   if (typeof value !== "string") return false;
@@ -73,7 +49,7 @@ function matchesSecret(value, expected) {
 function getSessionId(request) {
   const cookie = request.headers.cookie?.split(";").map((part) => part.trim()).find((part) => part.startsWith("vr_session="));
   if (!cookie) return null;
-  const [sessionId, signature] = cookie.slice("vr_session=".length).split(".");
+  const [sessionId, signature] = decodeURIComponent(cookie.slice("vr_session=".length)).split(".");
   if (!sessionId || !signature) return null;
   const expectedSignature = createHmac("sha256", sessionSecret).update(sessionId).digest("base64url");
   if (!matchesSecret(signature, expectedSignature)) return null;
@@ -99,7 +75,6 @@ function setSessionCookie(response, sessionId) {
 
 function sendLoginPage(request, response) {
   if (getSessionId(request)) return response.redirect("/");
-  response.setHeader("Cache-Control", "no-store");
   response.sendFile(path.join(directory, "login.html"));
 }
 
@@ -130,8 +105,7 @@ app.get("/api/health", async (_request, response) => {
   try {
     await pool.query("SELECT 1");
     response.json({ status: "ok", database: "connected" });
-  } catch (error) {
-    console.error("Falha na verificação de saúde do MySQL:", error.message);
+  } catch {
     response.status(503).json({ status: "degraded", database: "disconnected" });
   }
 });
@@ -140,24 +114,24 @@ app.get("/login", sendLoginPage);
 app.get("/login.html", sendLoginPage);
 app.get("/", (request, response) => {
   if (!getSessionId(request)) return response.redirect("/login");
-  response.setHeader("Cache-Control", "no-store");
   response.sendFile(path.join(directory, "index.html"));
 });
 app.get("/index.html", (request, response) => {
   if (!getSessionId(request)) return response.redirect("/login");
-  response.setHeader("Cache-Control", "no-store");
   response.sendFile(path.join(directory, "index.html"));
 });
-app.use(express.static(publicDirectory, {
-  setHeaders(response, filePath) {
-    if (path.basename(filePath) === "service-worker.js") response.setHeader("Cache-Control", "no-cache");
-  }
-}));
-app.get("/app.js", requireLogin, (_request, response) => response.sendFile(path.join(directory, "app.js")));
-app.use("/api", requireLogin, (_request, response, next) => {
-  response.setHeader("Cache-Control", "no-store");
-  next();
+app.get("/styles.css", (_request, response) => response.sendFile(path.join(directory, "styles.css")));
+app.get("/brand-mark.svg", (_request, response) => response.sendFile(path.join(directory, "public", "brand-mark.svg")));
+app.get("/manifest.webmanifest", (_request, response) => response.sendFile(path.join(directory, "manifest.webmanifest")));
+app.get("/service-worker.js", (_request, response) => {
+  response.setHeader("Cache-Control", "no-cache");
+  response.sendFile(path.join(directory, "service-worker.js"));
 });
+app.get("/install.js", (_request, response) => response.sendFile(path.join(directory, "install.js")));
+app.use("/icons", express.static(path.join(directory, "public", "icons"), { maxAge: "1d" }));
+app.get("/login.js", (_request, response) => response.sendFile(path.join(directory, "login.js")));
+app.get("/app.js", requireLogin, (_request, response) => response.sendFile(path.join(directory, "app.js")));
+app.use("/api", requireLogin);
 
 function mapOrder(row) {
   return {
@@ -176,7 +150,7 @@ function mapOrder(row) {
 
 app.get("/api/orders", async (request, response) => {
   try {
-    const [rows] = await pool.query("SELECT * FROM parcels ORDER BY received_at DESC");
+    const [rows] = await pool.query("SELECT * FROM parcels ORDER BY received_at DESC LIMIT 500");
     response.json(rows.map(mapOrder));
   } catch (error) {
     console.error("Falha ao consultar encomendas:", error.message);
@@ -186,31 +160,16 @@ app.get("/api/orders", async (request, response) => {
 
 app.post("/api/orders", async (request, response) => {
   const { resident, building, apartment, carrier, porter, notes } = request.body || {};
-  const requiredFields = [
-    ["resident", resident, 140],
-    ["building", building, 1],
-    ["apartment", apartment, 12],
-    ["porter", porter, 140]
-  ];
-  if (requiredFields.some(([, value]) => typeof value !== "string" || !value.trim())) {
+  if (![resident, building, apartment, porter].every((value) => typeof value === "string" && value.trim())) {
     return response.status(400).json({ error: "Morador, bloco, apartamento e porteiro são obrigatórios." });
   }
-  const oversizedField = requiredFields.find(([, value, maxLength]) => Array.from(value.trim()).length > maxLength);
-  if (oversizedField) return response.status(400).json({ error: `${oversizedField[0]} excede o limite de caracteres permitido.` });
-  if (!/^[A-C]$/.test(building.trim())) return response.status(400).json({ error: "Bloco inválido." });
-  if (carrier !== undefined && carrier !== null && typeof carrier !== "string") return response.status(400).json({ error: "Transportadora inválida." });
-  if (notes !== undefined && notes !== null && typeof notes !== "string") return response.status(400).json({ error: "Observações inválidas." });
-  const cleanCarrier = carrier?.trim() || "Não informado";
-  const cleanNotes = notes?.trim() || null;
-  if (Array.from(cleanCarrier).length > 100) return response.status(400).json({ error: "Transportadora deve ter no máximo 100 caracteres." });
-  if (cleanNotes && Array.from(cleanNotes).length > 16000) return response.status(400).json({ error: "Observações devem ter no máximo 16000 caracteres." });
+  if (!/^[A-C]$/.test(building)) return response.status(400).json({ error: "Bloco inválido." });
   try {
     const [result] = await pool.execute(
       "INSERT INTO parcels (resident, building, apartment, carrier, porter, notes) VALUES (?, ?, ?, ?, ?, ?)",
-      [resident.trim(), building.trim(), apartment.trim(), cleanCarrier, porter.trim(), cleanNotes]
+      [resident.trim(), building, apartment.trim(), carrier?.trim() || "Não informado", porter.trim(), notes?.trim() || null]
     );
     const [rows] = await pool.execute("SELECT * FROM parcels WHERE id = ?", [result.insertId]);
-    if (!rows.length) throw new Error("A encomenda foi inserida, mas não pôde ser lida de volta.");
     response.status(201).json(mapOrder(rows[0]));
   } catch (error) {
     console.error("Falha ao registrar encomenda:", error.message);
@@ -235,16 +194,7 @@ app.patch("/api/orders/:id/pickup", async (request, response) => {
   }
 });
 
-const server = app.listen(port, () => console.log(`Vitória Régia disponível em http://localhost:${port}`));
-server.on("error", async (error) => {
-  if (error.code === "EADDRINUSE") {
-    console.error(`A porta ${port} já está em uso. A aplicação pode já estar rodando; feche a outra instância ou configure outra porta pela variável PORT.`);
-  } else {
-    console.error(`Não foi possível iniciar o servidor na porta ${port}:`, error.message);
-  }
-  if (pool) await pool.end();
-  process.exitCode = 1;
-});
+app.listen(port, () => console.log(`Vitória Régia disponível em http://localhost:${port}`));
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, async () => {
