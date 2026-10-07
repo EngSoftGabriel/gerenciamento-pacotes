@@ -21,21 +21,68 @@ O painel é um PWA. No Android, use **Instalar app** e confirme o prompt do nave
 Requisitos: MySQL Server 8.0.16 ou superior, MySQL Workbench e Node.js 18 ou superior. O Workbench é o cliente gráfico; o MySQL Server precisa estar instalado e ativo para armazenar os dados.
 
 1. Abra o MySQL Workbench e conecte-se ao servidor local usando uma conta administradora.
-2. Abra `db/schema.sql` (File → Open SQL Script) e execute o script com o botão do raio. Ele cria o banco `vitoria_regia`, a tabela `parcels`, as restrições e os índices. A seção Schemas deve mostrar o banco e a tabela.
-3. Na aba SQL do Workbench, crie um usuário exclusivo para a aplicação e conceda apenas as permissões necessárias. Troque o valor de exemplo por uma senha forte:
+2. Abra `db/schema.sql` (File → Open SQL Script) e execute o script com o botão do raio, usando uma conta administradora do MySQL. Ele cria o banco `vitoria_regia`, a tabela `parcels`, as restrições, os índices e o usuário `vitoria_app` com as permissões da aplicação. Antes de executar, defina uma senha forte na instrução `CREATE USER` do script.
+3. Crie um arquivo chamado `.env` na raiz do projeto, ao lado de `package.json`, e preencha:
 
-	```sql
-	CREATE USER IF NOT EXISTS 'vitoria_app'@'127.0.0.1' IDENTIFIED BY 'troque-esta-senha';
-	GRANT SELECT, INSERT, UPDATE ON vitoria_regia.* TO 'vitoria_app'@'127.0.0.1';
+	```dotenv
+	PORT=3000
+	MYSQL_HOST=127.0.0.1
+	MYSQL_PORT=3306
+	MYSQL_USER=vitoria_app
+	MYSQL_PASSWORD=mesma-senha-definida-no-schema
+	MYSQL_DATABASE=vitoria_regia
+	ADMIN_USERNAME=admin
+	ADMIN_PASSWORD=defina-uma-senha-forte
+	SESSION_SECRET=defina-um-segredo-aleatorio-longo
 	```
 
-4. Copie `.env.example` para `.env` na raiz do projeto e ajuste `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`, `MYSQL_PASSWORD` e `MYSQL_DATABASE`. Para a instalação local, os valores iniciais de host, porta e banco já correspondem à configuração padrão do MySQL.
-5. No terminal, execute `npm install` e depois `npm start`. A API lê `.env` ao iniciar; reinicie-a sempre que alterar essas configurações.
-6. Acesse `http://localhost:3000/api/health`. O resultado esperado é `{"status":"ok","database":"connected"}`. Em seguida, entre no painel e teste o registro e a retirada de uma encomenda.
+	Substitua os três valores de exemplo por valores fortes. `MYSQL_PASSWORD` deve ser exatamente a mesma senha configurada para `vitoria_app` no `schema.sql`. Se o usuário já existir, `CREATE USER IF NOT EXISTS` não altera a senha; nesse caso, atualize-a com `ALTER USER` e use a mesma senha no `.env`.
+4. No terminal, execute `npm install` e depois `npm start`. A API lê `.env` ao iniciar; reinicie-a sempre que alterar essas configurações.
+5. Acesse `http://localhost:3000/api/health`. O resultado esperado é `{"status":"ok","database":"connected"}`. Em seguida, entre no painel e teste o registro e a retirada de uma encomenda.
 
 Para acessar o painel pelo celular na mesma rede, mantenha o servidor Node em execução no computador e acesse o IP desse computador na porta configurada para a aplicação. O Node conecta ao MySQL local; não exponha a porta 3306 à internet. Em produção, configure as variáveis `MYSQL_*` no serviço que hospeda o Node e use um banco MySQL persistente acessível por esse serviço.
 
 Esta mudança troca o driver e o esquema para MySQL, mas não migra dados que já estejam em um PostgreSQL. Se houver registros antigos nesse banco, exporte-os e importe-os separadamente antes de desativar o PostgreSQL.
+
+## Exemplos para desenvolvimento
+
+Use os exemplos abaixo apenas em um banco de desenvolvimento. Os nomes das colunas e dos campos da API permanecem em inglês porque são os identificadores usados pelo sistema; os dados de exemplo estão em português.
+
+Para cadastrar uma encomenda de teste no MySQL Workbench:
+
+```sql
+INSERT INTO parcels (resident, building, apartment, carrier, porter, notes)
+VALUES ('Mariana Costa', 'A', '203', 'Correios', 'João Silva', 'Encomenda de teste para desenvolvimento');
+
+SET @encomenda_teste_id = LAST_INSERT_ID();
+
+SELECT id, resident, building, apartment, carrier, porter, status, received_at
+FROM parcels
+WHERE id = @encomenda_teste_id;
+
+UPDATE parcels
+SET status = 'picked_up', picked_up_at = UTC_TIMESTAMP(3)
+WHERE id = @encomenda_teste_id AND status = 'pending';
+
+SELECT id, resident, status, picked_up_at
+FROM parcels
+WHERE id = @encomenda_teste_id;
+```
+
+Execute o bloco na mesma conexão do Workbench para que `LAST_INSERT_ID()` use o identificador da encomenda recém-criada. Para testar o cadastro pela API (`POST /api/orders`), o corpo JSON de exemplo é:
+
+```json
+{
+	"resident": "Mariana Costa",
+	"building": "A",
+	"apartment": "203",
+	"carrier": "Correios",
+	"porter": "João Silva",
+	"notes": "Encomenda de teste para desenvolvimento"
+}
+```
+
+O endpoint exige login; também é possível registrar e confirmar a retirada pela tela **Encomendas**.
 
 Rotas iniciais: `POST /api/login`, `POST /api/logout`, `GET /api/health`, `GET /api/orders`, `POST /api/orders` e `PATCH /api/orders/:id/pickup`. As rotas do dashboard e da API de encomendas exigem sessão autenticada.
 
